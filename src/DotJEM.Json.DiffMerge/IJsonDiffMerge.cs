@@ -124,8 +124,8 @@ namespace DotJEM.Json.DiffMerge
             if (origin != null)
             {
                 //both changed and both are not equal to origin, that means we have a conflict.
-                bool leftHasChanges = JToken.DeepEquals(left, origin);
-                bool rightHasChanges =  JToken.DeepEquals(right, origin);
+                bool leftHasChanges = !JToken.DeepEquals(left, origin);
+                bool rightHasChanges =  !JToken.DeepEquals(right, origin);
                 bool hasConflicts = leftHasChanges && rightHasChanges;
                 return new DiffMergeResult(hasConflicts, true, left, right, origin);
             }
