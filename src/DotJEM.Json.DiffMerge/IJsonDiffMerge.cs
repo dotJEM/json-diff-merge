@@ -69,7 +69,7 @@ namespace DotJEM.Json.DiffMerge
 
     }
 
-    internal static class JsonExtentions
+    internal static class JsonExtensions
     {
         public static JToken Get(this JArray self, int index)
         {
@@ -114,9 +114,6 @@ namespace DotJEM.Json.DiffMerge
             {
                 bool leftEqualsOrigin = JToken.DeepEquals(left, origin);
                 bool rightEqualsOrigin =  JToken.DeepEquals(right, origin);
-
-
-
             }
 
 
