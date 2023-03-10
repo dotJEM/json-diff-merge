@@ -110,17 +110,13 @@ namespace DotJEM.Json.DiffMerge
 
         public IDiffMergeResult Equals(JToken left, JToken right)
         {
-            if (origin != null)
-            {
-                bool leftEqualsOrigin = JToken.DeepEquals(left, origin);
-                bool rightEqualsOrigin =  JToken.DeepEquals(right, origin);
+            //if (origin != null)
+            //{
+            //    bool leftEqualsOrigin = JToken.DeepEquals(left, origin);
+            //    bool rightEqualsOrigin =  JToken.DeepEquals(right, origin);
+            //}
 
-
-
-            }
-
-
-            throw new NotImplementedException();
+            return new DiffMergeResult(false, false, left, right, origin);
         }
 
         public IDiffMergeResult Differs(JToken left, JToken right)
@@ -139,12 +135,18 @@ namespace DotJEM.Json.DiffMerge
 
         public IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JObject left, JObject right)
         {
-            throw new NotImplementedException();
+            results = results.ToList();
+            bool hasConflicts = results.Any(x => x.HasConflicts);
+            bool hasDifferences = results.Any(x => x.HasDifferences);
+            return new JObjectDiffMergeResult(hasConflicts, hasDifferences, left, right, origin, results);
         }
 
         public IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JArray left, JArray right)
         {
-            throw new NotImplementedException();
+            results = results.ToList();
+            bool hasConflicts = results.Any(x => x.HasConflicts);
+            bool hasDifferences = results.Any(x => x.HasDifferences);
+            return new JArrayDiffMergeResult(hasConflicts, hasDifferences, left, right, origin, results);
         }
 
         private IJsonDiffMergeContext AddChildContext(IJsonDiffMergeContext child)
