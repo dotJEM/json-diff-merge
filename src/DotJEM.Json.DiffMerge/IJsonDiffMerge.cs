@@ -153,13 +153,18 @@ namespace DotJEM.Json.DiffMerge
 
         public IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JObject left, JObject right)
         {
-            //bool areAnyDifferent = results.Any()
-            throw new NotImplementedException();
+            results = results.ToList();
+            bool hasConflicts = results.Any(x => x.HasConflicts);
+            bool hasDifferences = results.Any(x => x.HasDifferences);
+            return new JObjectDiffMergeResult(hasConflicts, hasDifferences, left, right, origin, results);
         }
 
         public IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JArray left, JArray right)
         {
-            throw new NotImplementedException();
+            results = results.ToList();
+            bool hasConflicts = results.Any(x => x.HasConflicts);
+            bool hasDifferences = results.Any(x => x.HasDifferences);
+            return new JArrayDiffMergeResult(hasConflicts, hasDifferences, left, right, origin, results);
         }
 
         public IEnumerable<AlignedItem> Align(JArray left, JArray right)
