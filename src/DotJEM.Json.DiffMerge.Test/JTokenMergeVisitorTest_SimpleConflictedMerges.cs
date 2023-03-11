@@ -11,10 +11,10 @@ public class JTokenMergeVisitorTest_SimpleConflictedMerges : AbstractJTokenMerge
     [TestCaseSource(nameof(ConflictedMerges))]
     public void Merge_WithConflicts_DisallowsUpdate(JToken update, JToken conflict, JToken origin, JToken expected)
     {
-        IJsonDiffMerge differ = new JsonDiffMerge();
-        IDiffMergeResult? result = differ.Diff(update, conflict, origin);
+        IJsonDiffComparer differ = new JsonDiffComparer();
+        IDiffCompareResult? result = differ.Diff(update, conflict, origin);
 
-        Assert.That(result, Has.Property(nameof(IDiffMergeResult.HasConflicts)).True);
+        Assert.That(result, Has.Property(nameof(IDiffCompareResult.HasConflicts)).True);
         //& Has.Property<MergeResult>(nameof(IDiffMergeResult))).EqualTo(expected));
     }
 

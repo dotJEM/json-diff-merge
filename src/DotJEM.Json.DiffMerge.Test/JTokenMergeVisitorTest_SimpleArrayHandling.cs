@@ -16,10 +16,10 @@ public class JTokenMergeVisitorTest_SimpleArrayHandling : AbstractJTokenMergeVis
         JToken origin = Json("{ arr: [3,1,2] }");
         JToken diff = Json("{ arr: { origin: [3,1,2], other: [2,3,1], update: [1,2,3] } }");
 
-        IJsonDiffMerge differ = new JsonDiffMerge();
-        IDiffMergeResult? result = differ.Diff(update, conflict, origin);
+        IJsonDiffComparer differ = new JsonDiffComparer();
+        IDiffCompareResult? result = differ.Diff(update, conflict, origin);
 
-        Assert.That(result, Has.Property(nameof(IDiffMergeResult.HasConflicts)).True);
+        Assert.That(result, Has.Property(nameof(IDiffCompareResult.HasConflicts)).True);
         //Assert.That(result, ObjectHas.Property<MergeResult>(x => x.HasConflicts).True
         //                    & ObjectHas.Property<MergeResult>(x => x.Conflicts).EqualTo(diff));
     }
@@ -31,10 +31,10 @@ public class JTokenMergeVisitorTest_SimpleArrayHandling : AbstractJTokenMergeVis
         JToken origin = Json("{ arr: 'foo' }");
         JToken diff = Json("{ arr: { origin: 'foo', other: [2,3,1], update: [1,2,3] } }");
 
-        IJsonDiffMerge differ = new JsonDiffMerge();
-        IDiffMergeResult? result = differ.Diff(update, conflict, origin);
+        IJsonDiffComparer differ = new JsonDiffComparer();
+        IDiffCompareResult? result = differ.Diff(update, conflict, origin);
 
-        Assert.That(result, Has.Property(nameof(IDiffMergeResult.HasConflicts)).True);
+        Assert.That(result, Has.Property(nameof(IDiffCompareResult.HasConflicts)).True);
         //Assert.That(result, ObjectHas.Property<MergeResult>(x => x.HasConflicts).True
         //                    & ObjectHas.Property<MergeResult>(x => x.Conflicts).Matches(JsonIs.EqualTo(diff)));
     }
@@ -42,11 +42,11 @@ public class JTokenMergeVisitorTest_SimpleArrayHandling : AbstractJTokenMergeVis
     [TestCaseSource(nameof(NonConflictedMerges))]
     public void Merge_WithoutConflicts_Merges(JToken update, JToken conflict, JToken origin, JToken expected)
     {
-        IJsonDiffMerge differ = new JsonDiffMerge();
-        IDiffMergeResult? result = differ.Diff(update, conflict, origin);
+        IJsonDiffComparer differ = new JsonDiffComparer();
+        IDiffCompareResult? result = differ.Diff(update, conflict, origin);
 
 
-        Assert.That(result, Has.Property(nameof(IDiffMergeResult.HasConflicts)).False);
+        Assert.That(result, Has.Property(nameof(IDiffCompareResult.HasConflicts)).False);
 
         //Assert.That(result, ObjectHas.Property<MergeResult>(x => x.HasConflicts).EqualTo(false)
         //                    & ObjectHas.Property<MergeResult>(x => x.Merged).Matches(JsonIs.EqualTo(expected)));
@@ -55,10 +55,10 @@ public class JTokenMergeVisitorTest_SimpleArrayHandling : AbstractJTokenMergeVis
     [TestCaseSource(nameof(ConflictedMerges))]
     public void Merge_WithConflicts_FailsMerge(JToken update, JToken conflict, JToken origin, JToken expected)
     {
-        IJsonDiffMerge differ = new JsonDiffMerge();
-        IDiffMergeResult? result = differ.Diff(update, conflict, origin);
+        IJsonDiffComparer differ = new JsonDiffComparer();
+        IDiffCompareResult? result = differ.Diff(update, conflict, origin);
 
-        Assert.That(result, Has.Property(nameof(IDiffMergeResult.HasConflicts)).True);
+        Assert.That(result, Has.Property(nameof(IDiffCompareResult.HasConflicts)).True);
         //Assert.That(result, ObjectHas.Property<MergeResult>(x => x.HasConflicts).EqualTo(true));
         //Assert.That(result.Conflicts, JsonIs.EqualTo(expected));
     }
