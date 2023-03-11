@@ -13,12 +13,19 @@ namespace DotJEM.Json.DiffMerge
 
     public class JsonDiffMerge : IJsonDiffMerge
     {
-        public IDiffMergeResult Diff(JToken left, JToken right, JToken origin = null)
+        private readonly IJsonDiffMergeOptions options;
+
+        public JsonDiffMerge(IJsonDiffMergeOptions options = null)
         {
-            return Diff(left, right, new JsonDiffMergeContext(left, right, origin));
+            this.options = options ?? new JsonDiffMergeOptions();
         }
 
-        public IDiffMergeResult Diff(JToken left, JToken right, IJsonDiffMergeContext context)
+        public IDiffMergeResult Diff(JToken left, JToken right, JToken origin = null)
+        {
+            return Diff(left, right, new JsonThreeWayDiffMergeContext(left, right, origin, options));
+        }
+
+        private IDiffMergeResult Diff(JToken left, JToken right, IJsonDiffMergeContext context)
         {
             if (left == null && right == null)
                 return context.Equals(null, null);
@@ -38,14 +45,14 @@ namespace DotJEM.Json.DiffMerge
             throw new ArgumentOutOfRangeException();
         }
 
-        public IDiffMergeResult Diff(JValue left, JValue right, IJsonDiffMergeContext context)
+        private IDiffMergeResult Diff(JValue left, JValue right, IJsonDiffMergeContext context)
         {
             return !JToken.DeepEquals(left, right)
                 ? context.Differs(left, right)
                 : context.Equals(left, right);
         }
 
-        public IDiffMergeResult Diff(JObject left, JObject right, IJsonDiffMergeContext context)
+        private IDiffMergeResult Diff(JObject left, JObject right, IJsonDiffMergeContext context)
         {
             IEnumerable<IDiffMergeResult> results = from key in Keys(left, right)
                 let diff = Diff(left[key], right[key], context.Next(key))
@@ -54,10 +61,10 @@ namespace DotJEM.Json.DiffMerge
             return context.AddChildren(results, left, right);
         }
 
-        public IDiffMergeResult Diff(JArray left, JArray right, IJsonDiffMergeContext context)
+        private IDiffMergeResult Diff(JArray left, JArray right, IJsonDiffMergeContext context)
         {
-            IEnumerable<IDiffMergeResult> results = from index in Enumerable.Range(0, Math.Max(left.Count, right.Count))
-                let diff = Diff(left.Get(index) , right.Get(index), context.Next(index))
+            IEnumerable<IDiffMergeResult> results = from aligned in context.Align(left, right)
+                let diff = Diff(aligned.Left, aligned.Right, aligned.Context)
                 select diff;
             return context.AddChildren(results, left, right);
         }
@@ -69,7 +76,7 @@ namespace DotJEM.Json.DiffMerge
 
     }
 
-    internal static class JsonExtentions
+    internal static class JsonExtensions
     {
         public static JToken Get(this JArray self, int index)
         {
@@ -86,59 +93,67 @@ namespace DotJEM.Json.DiffMerge
 
         IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JObject left, JObject right);
         IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JArray left, JArray right);
+        IEnumerable<AlignedItem> Align(JArray left, JArray right);
     }
 
-    public class JsonDiffMergeContext : IJsonDiffMergeContext
+    public class AlignedItem
     {
+        public JToken Left { get; }
+        public JToken Right { get; }
+        public IJsonDiffMergeContext Context { get; }
+
+        public AlignedItem(JToken left, JToken right, IJsonDiffMergeContext context)
+        {
+            Left = left;
+            Right = right;
+            Context = context;
+        }
+    }
+
+    public class JsonThreeWayDiffMergeContext : IJsonDiffMergeContext
+    {
+        private readonly IJsonDiffMergeOptions options;
+
         private readonly JToken left;
         private readonly JToken right;
         private readonly JToken origin;
+
         private readonly List<IJsonDiffMergeContext> children = new List<IJsonDiffMergeContext>();
 
-        public JsonDiffMergeContext(JToken left, JToken right, JToken origin)
+        public JsonThreeWayDiffMergeContext(JToken left, JToken right, JToken origin, IJsonDiffMergeOptions options)
         {
             this.left = left;
             this.right = right;
             this.origin = origin;
+            this.options = options;
         }
 
         public IJsonDiffMergeContext Next(string key)
-            => AddChildContext(new KeyJsonDiffMergeContext(key, left[key], right[key], origin?[key]));
+            => AddChildContext(new KeyJsonThreeWayDiffMergeContext(key, left[key], right[key], origin?[key], options));
 
         public IJsonDiffMergeContext Next(int index) 
-            => AddChildContext(new IndexJsonDiffMergeContext(index, left[index], right[index], origin?[index]));
+            => AddChildContext(new IndexJsonThreeWayDiffMergeContext(index, index, index, left[index], right[index], origin?[index], options));
 
         public IDiffMergeResult Equals(JToken left, JToken right)
         {
-            if (origin != null)
-            {
-                bool leftEqualsOrigin = JToken.DeepEquals(left, origin);
-                bool rightEqualsOrigin =  JToken.DeepEquals(right, origin);
-
-
-
-            }
-
-
-            throw new NotImplementedException();
+            bool leftEqualsOrigin = JToken.DeepEquals(left, origin);
+            bool rightEqualsOrigin =  JToken.DeepEquals(right, origin);
+            bool hasChanges = leftEqualsOrigin || rightEqualsOrigin;
+            return new ThreeWayDiffMergeResult(false, hasChanges, left, right, origin);
         }
 
         public IDiffMergeResult Differs(JToken left, JToken right)
         {
-            if (origin != null)
-            {
-                //both changed and both are not equal to origin, that means we have a conflict.
-                bool leftHasChanges = JToken.DeepEquals(left, origin);
-                bool rightHasChanges =  JToken.DeepEquals(right, origin);
-                bool hasConflicts = leftHasChanges && rightHasChanges;
-                return new DiffMergeResult(hasConflicts, true, left, right, origin);
-            }
-            //TODO: We need to differ between 3way diff/merge and 2way diff/merge from the top.
-            return new DiffMergeResult(false, true, left, right, origin);
+            bool leftHasChanges = JToken.DeepEquals(left, origin);
+            bool rightHasChanges =  JToken.DeepEquals(right, origin);
+            //both changed and both are not equal to origin, that means we have a conflict.
+            bool hasConflicts = leftHasChanges && rightHasChanges;
+            return new ThreeWayDiffMergeResult(hasConflicts, true, left, right, origin);
         }
 
         public IDiffMergeResult AddChildren(IEnumerable<IDiffMergeResult> results, JObject left, JObject right)
         {
+            //bool areAnyDifferent = results.Any()
             throw new NotImplementedException();
         }
 
@@ -147,13 +162,51 @@ namespace DotJEM.Json.DiffMerge
             throw new NotImplementedException();
         }
 
+        public IEnumerable<AlignedItem> Align(JArray left, JArray right)
+        {
+            JArray origin = this.origin as JArray;
+            int count = Math.Max(left.Count, right.Count);
+            if (origin != null)
+            {
+                count = Math.Max(origin.Count, count);
+                for (int i = 0; i < count; i++)
+                {
+                    yield return new AlignedItem(left.Get(i), right.Get(i), new IndexJsonThreeWayDiffMergeContext(i, i, i, left.Get(i), right.Get(i), origin.Get(i), options));
+                }
+            }
+            else
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    yield return new AlignedItem(left.Get(i), right.Get(i), new IndexJsonThreeWayDiffMergeContext(i, i, -1, left.Get(i), right.Get(i), null, options));
+                }
+            }
+        }
+
         private IJsonDiffMergeContext AddChildContext(IJsonDiffMergeContext child)
         {
             children.Add(child);
             return child;
         }
+
+
     }
-    
+
+    public interface IArrayAlignment
+    {
+
+    }
+
+    public interface IJsonDiffMergeOptions
+    {
+        IArrayAlignment ArrayAlignment { get; }
+    }
+
+    public class JsonDiffMergeOptions : IJsonDiffMergeOptions
+    {
+        public IArrayAlignment ArrayAlignment { get; }
+    }
+
 
     public interface IDiffMergeResult
     {
@@ -164,13 +217,10 @@ namespace DotJEM.Json.DiffMerge
         JToken Right { get; }
         JToken Origin { get; }
 
-        JObject MergeLeftToRight();
-        JObject MergeRightToLeft();
-
-
+        bool TryMerge(out JToken merged);
     }
 
-    public class DiffMergeResult : IDiffMergeResult
+    public class ThreeWayDiffMergeResult : IDiffMergeResult
     {
         public bool HasConflicts { get; }
         public bool HasDifferences { get; }
@@ -179,7 +229,7 @@ namespace DotJEM.Json.DiffMerge
         public JToken Right { get; }
         public JToken Origin { get; }
 
-        public DiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin)
+        public ThreeWayDiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin)
         {
             HasConflicts = hasConflicts;
             HasDifferences = hasDifferences;
@@ -188,59 +238,62 @@ namespace DotJEM.Json.DiffMerge
             Right = right;
             Origin = origin;
         }
-
-        public JObject MergeLeftToRight()
+        public bool TryMerge(out JToken merged)
         {
+            merged = null;
+            if (HasConflicts)
+                return false;
+
             throw new NotImplementedException();
         }
 
-        public JObject MergeRightToLeft()
-        {
-            throw new NotImplementedException();
-        }
     }
 
-    public class JObjectDiffMergeResult : DiffMergeResult
+    public class JObjectThreeWayDiffMergeResult : ThreeWayDiffMergeResult
     {
         private readonly List<IDiffMergeResult> children;
 
-        public JObjectDiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin, IEnumerable<IDiffMergeResult> children) 
+        public JObjectThreeWayDiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin, IEnumerable<IDiffMergeResult> children) 
             : base(hasConflicts, hasDifferences, left, right, origin)
         {
             this.children = children.ToList();
         }
     }
 
-    public class JArrayDiffMergeResult : DiffMergeResult
+    public class JArrayThreeWayDiffMergeResult : ThreeWayDiffMergeResult
     {
         private readonly List<IDiffMergeResult> children;
 
-        public JArrayDiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin, IEnumerable<IDiffMergeResult> children) 
+        public JArrayThreeWayDiffMergeResult(bool hasConflicts, bool hasDifferences, JToken left, JToken right, JToken origin, IEnumerable<IDiffMergeResult> children) 
             : base(hasConflicts, hasDifferences, left, right, origin)
         {
             this.children = children.ToList();
         }
     }
 
-    public class KeyJsonDiffMergeContext : JsonDiffMergeContext
+    public class KeyJsonThreeWayDiffMergeContext : JsonThreeWayDiffMergeContext
     {
         private readonly string key;
 
-        public KeyJsonDiffMergeContext(string key, JToken left, JToken right, JToken origin)
-            : base(left, right, origin)
+        public KeyJsonThreeWayDiffMergeContext(string key, JToken left, JToken right, JToken origin, IJsonDiffMergeOptions options)
+            : base(left, right, origin, options)
         {
             this.key = key;
         }
     }
 
-    public class IndexJsonDiffMergeContext : JsonDiffMergeContext
+    public class IndexJsonThreeWayDiffMergeContext : JsonThreeWayDiffMergeContext
     {
-        private readonly int index;
+        private readonly int leftIndex;
+        private readonly int rightIndex;
+        private readonly int originIndex;
 
-        public IndexJsonDiffMergeContext(int index, JToken left, JToken right, JToken origin)
-            : base(left, right, origin)
+        public IndexJsonThreeWayDiffMergeContext(int leftIndex, int rightIndex, int originIndex, JToken left, JToken right, JToken origin, IJsonDiffMergeOptions options)
+            : base(left, right, origin, options)
         {
-            this.index = index;
+            this.leftIndex = leftIndex;
+            this.rightIndex = rightIndex;
+            this.originIndex = originIndex;
         }
     }
 }
