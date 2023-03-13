@@ -5,28 +5,23 @@ using Newtonsoft.Json.Linq;
 
 namespace DotJEM.Json.DiffMerge;
 
-
+public static class ThreeWayJsonDiffExtensions
+{
+  
+    public static IDiffCompareResult Diff(this IJsonDiffComparer self, JToken left, JToken right, JToken origin, I3WayJsonDiffCompareOptions options = null)
+    {
+         options ??= new ThreeWayJsonDiffCompareOptions();
+        IJsonDiffCompareContext context = new JsonThreeWayDiffCompareContext(left, right, origin, options);
+        return self.Diff(left, right, context);
+    }
+}
 public interface IJsonDiffComparer
 {
-    IDiffCompareResult Diff(JToken left, JToken right, JToken origin = null);
     IDiffCompareResult Diff(JToken left, JToken right, IJsonDiffCompareContext context);
 }
 
 public class JsonDiffComparer : IJsonDiffComparer
 {
-    private readonly IJsonDiffCompareOptions options;
-
-    public JsonDiffComparer(IJsonDiffCompareOptions options = null)
-    {
-        this.options = options ?? new JsonDiffCompareOptions();
-    }
-
-    public IDiffCompareResult Diff(JToken left, JToken right, JToken origin = null)
-    {
-        return Diff(left, right, new JsonThreeWayDiffCompareContext(left, right, origin, new SimpleThreeWayArrayAlignment(),
-            options));
-    }
-
     public IDiffCompareResult Diff(JToken left, JToken right, IJsonDiffCompareContext context)
     {
         if (left == null && right == null)
@@ -59,16 +54,12 @@ public class JsonDiffComparer : IJsonDiffComparer
         IEnumerable<IDiffCompareResult> results = from key in Keys(left, right)
                                                   let diff = Diff(left[key], right[key], context.Next(key))
                                                   select diff;
-
         return context.AddChildren(results, left, right);
     }
 
     private IDiffCompareResult Diff(JArray left, JArray right, IJsonDiffCompareContext context)
     {
-        IEnumerable<IDiffCompareResult> results = from aligned in context.Align(left, right)
-                                                  let diff = Diff(aligned.Left, aligned.Right, aligned.Context)
-                                                  select diff;
-        return context.AddChildren(results, left, right);
+        return context.ArrayHandler.Diff(left, right, this);
     }
 
     private IEnumerable<string> Keys(IDictionary<string, JToken> left, IDictionary<string, JToken> right)
@@ -88,6 +79,7 @@ internal static class JsonExtensions
 
 public interface IJsonDiffCompareContext
 {
+    IDiffCompareArrayHandling ArrayHandler { get; }
     IJsonDiffCompareContext Next(string key);
     //IJsonDiffCompareContext Next(int index);
     IDiffCompareResult Equals(JToken left, JToken right);
@@ -95,33 +87,32 @@ public interface IJsonDiffCompareContext
 
     IDiffCompareResult AddChildren(IEnumerable<IDiffCompareResult> results, JObject left, JObject right);
     IDiffCompareResult AddChildren(IEnumerable<IDiffCompareResult> results, JArray left, JArray right);
-    IEnumerable<AlignedItem> Align(JArray left, JArray right);
 }
 
 
 public class JsonThreeWayDiffCompareContext : IJsonDiffCompareContext
 {
-    private readonly IJsonDiffCompareOptions options;
+    private readonly I3WayJsonDiffCompareOptions options;
 
     private readonly JToken left;
     private readonly JToken right;
     private readonly JToken origin;
 
-    private readonly IThreeWayArrayAlignment alignment;
-
     private readonly List<IJsonDiffCompareContext> children = new List<IJsonDiffCompareContext>();
 
-    public JsonThreeWayDiffCompareContext(JToken left, JToken right, JToken origin, IThreeWayArrayAlignment alignment, IJsonDiffCompareOptions options)
+    public IDiffCompareArrayHandling ArrayHandler { get; }
+
+    public JsonThreeWayDiffCompareContext(JToken left, JToken right, JToken origin, I3WayJsonDiffCompareOptions options)
     {
         this.left = left;
         this.right = right;
         this.origin = origin;
-        this.alignment = alignment;
         this.options = options;
+        this.ArrayHandler = options.ArrayHandlerFactory(origin, this);
     }
 
     public IJsonDiffCompareContext Next(string key)
-        => AddChildContext(new KeyJsonThreeWayDiffCompareContext(key, left[key], right[key], origin?[key], alignment,options));
+        => AddChildContext(new KeyJsonThreeWayDiffCompareContext(key, left[key], right[key], origin?[key],options));
 
     //public IJsonDiffCompareContext Next(int index)
     //    => AddChildContext(new IndexJsonThreeWayDiffCompareContext(index, index, index, left[index], right[index], origin?[index], alignment, options));
@@ -157,10 +148,6 @@ public class JsonThreeWayDiffCompareContext : IJsonDiffCompareContext
         return new JArrayThreeWayDiffCompareResult(hasConflicts, hasDifferences, left, right, origin, results);
     }
 
-    public IEnumerable<AlignedItem> Align(JArray left, JArray right)
-    {
-        return alignment.Align(left, right, origin as JArray);
-    }
 
     private IJsonDiffCompareContext AddChildContext(IJsonDiffCompareContext child)
     {
@@ -169,118 +156,73 @@ public class JsonThreeWayDiffCompareContext : IJsonDiffCompareContext
     }
 }
 
-public interface IThreeWayArrayAlignment
+public interface IDiffCompareArrayHandling
 {
-    IEnumerable<AlignedItem> Align(JArray left, JArray right, JArray origin);
+    IDiffCompareResult Diff(JArray left, JArray right, IJsonDiffComparer comparer);
 }
 
-public class SimpleThreeWayArrayAlignment : IThreeWayArrayAlignment
+public class AsValueThreeWayArrayHandling : IDiffCompareArrayHandling
 {
-    public IEnumerable<AlignedItem> Align(JArray left, JArray right, JArray origin)
+    private readonly JToken origin;
+    private readonly IJsonDiffCompareContext context;
+
+    public AsValueThreeWayArrayHandling(JToken origin, IJsonDiffCompareContext context)
     {
-        int count = Math.Max(left.Count, right.Count);
-        if (origin != null)
-        {
-            count = Math.Max(origin.Count, count);
-            for (int i = 0; i < count; i++)
-            {
-                yield return new AlignedItem(
-                    left.Get(i), 
-                    right.Get(i), 
-                    new IndexJsonThreeWayDiffCompareContext(i, i, i,
-                        left.Get(i), right.Get(i), origin.Get(i), this,null));
-            }
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                yield return new AlignedItem(left.Get(i), right.Get(i), 
-                    new IndexJsonThreeWayDiffCompareContext(i, i, -1, left.Get(i), right.Get(i),
-                        null, this, null));
-            }
-        }
-
-
+        this.origin = origin;
+        this.context = context;
     }
 
-    public IEnumerable<ThreeWayAligned> Ali(JArray left, JArray right, JToken origin)
+    public IDiffCompareResult Diff(JArray left, JArray right, IJsonDiffComparer comparer)
     {
-        int count = Math.Max(left.Count, right.Count);
-        if (origin is JArray originArr)
-        {
-            count = Math.Max(originArr.Count, count);
-            for (int i = 0; i < count; i++)
-            {
-                yield return new ThreeWayAligned(
-                    new IndexedItem(i, left.Get(i)),
-                    new IndexedItem(i, right.Get(i)),
-                    new IndexedItem(i, originArr?.Get(i))
-                );
-            }
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                yield return new ThreeWayAligned(
-                    new IndexedItem(i, left.Get(i)),
-                    new IndexedItem(i, right.Get(i)),
-                    new IndexedItem(i, origin) //TODO - we need to indicate that 
-                );
-            }
-        }
+        bool areEquals = JToken.DeepEquals(left, right);
+        bool leftHasChanges = !JToken.DeepEquals(left, origin);
+        bool rightHasChanges = !JToken.DeepEquals(right, origin);
+        return new ThreeWayDiffCompareResult(
+            !areEquals && leftHasChanges && rightHasChanges,
+            //note: 
+            leftHasChanges || rightHasChanges,
+            left, right, origin
+        );
     }
-
 }
 
 public struct ThreeWayAligned
 {
-    public IndexedItem Left { get; }
-    public IndexedItem Right { get; }
-    public IndexedItem Origin { get; }
+    public ValueWithIndex Left { get; }
+    public ValueWithIndex Right { get; }
+    public ValueWithIndex Origin { get; }
 
-    public ThreeWayAligned(IndexedItem left, IndexedItem right, IndexedItem origin)
+    public ThreeWayAligned(ValueWithIndex left, ValueWithIndex right, ValueWithIndex origin)
     {
         Left = left;
         Right = right;
         Origin = origin;
     }
 }
-public struct IndexedItem
+public struct ValueWithIndex
 {
     public int Index { get; }
     public JToken Value { get; }
 
-    public IndexedItem(int index, JToken value)
+    public ValueWithIndex(int index, JToken value)
     {
         Index = index;
         Value = value;
     }
 
-    public static implicit operator JToken(IndexedItem val) => val.Value;
-}
-public class AlignedItem
-{
-    public JToken Left { get; }
-    public JToken Right { get; }
-    public IJsonDiffCompareContext Context { get; }
-
-    public AlignedItem(JToken left, JToken right, IJsonDiffCompareContext context)
-    {
-        Left = left;
-        Right = right;
-        Context = context;
-    }
+    public static implicit operator JToken(ValueWithIndex val) => val.Value;
 }
 
 
-public interface IJsonDiffCompareOptions
+public interface I3WayJsonDiffCompareOptions
 {
+    Func<JToken, IJsonDiffCompareContext, IDiffCompareArrayHandling> ArrayHandlerFactory { get; }
 }
 
-public class JsonDiffCompareOptions : IJsonDiffCompareOptions
+public class ThreeWayJsonDiffCompareOptions : I3WayJsonDiffCompareOptions
 {
+    public Func<JToken, IJsonDiffCompareContext, IDiffCompareArrayHandling> ArrayHandlerFactory { get; set; }
+        = (token, context) => new AsValueThreeWayArrayHandling(token, context);
 }
 
 
@@ -291,7 +233,7 @@ public interface IDiffCompareResult
 
     JToken Left { get; }
     JToken Right { get; }
-    JToken Origin { get; }
+    //JToken Origin { get; }
 
     bool TryMerge(out JToken merged);
 }
@@ -314,6 +256,7 @@ public class ThreeWayDiffCompareResult : IDiffCompareResult
         Right = right;
         Origin = origin;
     }
+
     public bool TryMerge(out JToken merged)
     {
         merged = null;
@@ -351,8 +294,8 @@ public class KeyJsonThreeWayDiffCompareContext : JsonThreeWayDiffCompareContext
 {
     private readonly string key;
 
-    public KeyJsonThreeWayDiffCompareContext(string key, JToken left, JToken right, JToken origin, IThreeWayArrayAlignment alignment, IJsonDiffCompareOptions options)
-        : base(left, right, origin, alignment, options)
+    public KeyJsonThreeWayDiffCompareContext(string key, JToken left, JToken right, JToken origin, I3WayJsonDiffCompareOptions options)
+        : base(left, right, origin, options)
     {
         this.key = key;
     }
@@ -364,8 +307,8 @@ public class IndexJsonThreeWayDiffCompareContext : JsonThreeWayDiffCompareContex
     private readonly int rightIndex;
     private readonly int originIndex;
 
-    public IndexJsonThreeWayDiffCompareContext(int leftIndex, int rightIndex, int originIndex, JToken left, JToken right, JToken origin, IThreeWayArrayAlignment alignment, IJsonDiffCompareOptions options)
-        : base(left, right, origin, alignment, options)
+    public IndexJsonThreeWayDiffCompareContext(int leftIndex, int rightIndex, int originIndex, JToken left, JToken right, JToken origin, I3WayJsonDiffCompareOptions options)
+        : base(left, right, origin,  options)
     {
         this.leftIndex = leftIndex;
         this.rightIndex = rightIndex;
